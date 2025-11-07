@@ -1,12 +1,12 @@
-(without K8S Stage)
+
 pipeline {
     agent any
     tools {
-        jdk 'jdk17'
-        nodejs 'node23'
+        jdk 'jdk'
+        nodejs 'nodejs'
     }
     environment {
-        SCANNER_HOME = tool 'sonar-scanner'
+        SCANNER_HOME = tool 'sonar_scanner'
     }
     stages {
         stage('Clean Workspace') {
@@ -16,7 +16,7 @@ pipeline {
         }
         stage('Checkout from Git') {
             steps {
-                git branch: 'main', url: 'https://github.com/KastroVKiran/Book-My-Show.git'
+                git branch: 'main', url: 'https://github.com/sravani3377/Book-My-Show.git'
                 sh 'ls -la'  // Verify files after checkout
             }
         }
@@ -54,7 +54,7 @@ pipeline {
         }
         stage('OWASP FS Scan') {
             steps {
-                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'dp_check'
                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
         }
