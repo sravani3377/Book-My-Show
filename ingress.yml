@@ -11,10 +11,10 @@ metadata:
     nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   rules:
-  - host:   # replace with your domain OR remove host block to use path-only ingress
+  - host: bms.example.com  # replace with your domain OR remove host block to use path-only ingress
     http:
       paths:
-      - path: /asha
+      - path: /
         pathType: Prefix
         backend:
           service:
