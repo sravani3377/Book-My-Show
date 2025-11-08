@@ -1,38 +1,35 @@
-
 pipeline {
     agent any
     tools {
         jdk 'jdk'
-        nodejs 'nodejs'
+        nodejs 'node23'
     }
     environment {
         SCANNER_HOME = tool 'sonar_scanner'
         DOCKER_IMAGE = 'asha12345/bms:latest'
         EKS_CLUSTER_NAME = 'pro-cluster'
-        AWS_REGION = 'ap-south-1'         
+        AWS_REGION = 'ap-south-1'
     }
     stages {
         stage('Clean Workspace') {
-            steps {
-                cleanWs()
-            }
+            steps { cleanWs() }
         }
+
         stage('Checkout from Git') {
             steps {
                 git branch: 'main', url: 'https://github.com/sravani3377/Book-My-Show.git'
-                sh 'ls -la'  // Verify files after checkout
+                sh 'ls -la'
             }
         }
+
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonar-server') {
-                    sh ''' 
-                    $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=BMS \
-                    -Dsonar.projectKey=BMS 
-                    '''
+                    sh '''$SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=BMS -Dsonar.projectKey=BMS'''
                 }
             }
         }
+
         stage('Quality Gate') {
             steps {
                 script {
@@ -40,66 +37,72 @@ pipeline {
                 }
             }
         }
+
         stage('Install Dependencies') {
             steps {
                 sh '''
                 cd bookmyshow-app
-                ls -la  # Verify package.json exists
                 if [ -f package.json ]; then
-                    rm -rf node_modules package-lock.json  # Remove old dependencies
-                    npm install  # Install fresh dependencies
+                    rm -rf node_modules package-lock.json
+                    npm install
                 else
-                    echo "Error: package.json not found in bookmyshow-app!"
+                    echo "❌ package.json NOT found!"
                     exit 1
                 fi
                 '''
             }
         }
+
         stage('OWASP FS Scan') {
             steps {
                 dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'dp_check'
                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
         }
+
         stage('Trivy FS Scan') {
-            steps {
-                sh 'trivy fs . > trivyfs.txt'
-            }
+            steps { sh 'trivy fs . > trivyfs.txt' }
         }
+
         stage('Docker Build & Push') {
             steps {
                 script {
                     withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
-                        sh ''' 
-                        echo "Building Docker image..."
-                        docker build --no-cache -t asha12345/bms:latest -f bookmyshow-app/Dockerfile bookmyshow-app
-
-                        echo "Pushing Docker image to registry..."
-                        docker push asha12345/bms:latest
+                        sh '''
+                        docker build --no-cache -t $DOCKER_IMAGE -f bookmyshow-app/Dockerfile bookmyshow-app
+                        docker push $DOCKER_IMAGE
                         '''
                     }
                 }
             }
         }
-         stage('Deploy to EKS Cluster') {
+
+        stage('Trivy Image Scan') {
+            steps { sh 'trivy image $DOCKER_IMAGE > trivyimage.txt' }
+        }
+
+        stage('Deploy to EKS Cluster') {
             steps {
-                script {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
                     sh '''
-                    echo "Verifying AWS credentials..."
+                    echo "🔍 Checking AWS Identity..."
                     aws sts get-caller-identity
 
-                    echo "Configuring kubectl for EKS cluster..."
+                    echo "⚙ Configuring kubeconfig for EKS..."
                     aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
 
-                    echo "Verifying kubeconfig..."
-                    kubectl config view
+                    echo "📌 Checking Deployment files..."
+                    if [ ! -f deployment.yml ] || [ ! -f service.yml ]; then
+                        echo "❌ deployment.yml or service.yml missing!"
+                        exit 1
+                    fi
 
-                    echo "Deploying application to EKS..."
+                    echo "🚀 Deploying to EKS..."
                     kubectl apply -f deployment.yml
                     kubectl apply -f service.yml
 
-                    echo "Verifying deployment..."
-                    kubectl get pods
+                    echo "✅ Deployment Status:"
+                    kubectl get pods --all-namespaces
                     kubectl get svc
                     '''
                 }
@@ -111,9 +114,7 @@ pipeline {
         always {
             emailext attachLog: true,
                 subject: "'${currentBuild.result}'",
-                body: "Project: ${env.JOB_NAME}<br/>" +
-                      "Build Number: ${env.BUILD_NUMBER}<br/>" +
-                      "URL: ${env.BUILD_URL}<br/>",
+                body: "Job: ${env.JOB_NAME}<br/>Build: ${env.BUILD_NUMBER}<br/>URL: ${env.BUILD_URL}<br/>",
                 to: 'kastrokiran@gmail.com',
                 attachmentsPattern: 'trivyfs.txt,trivyimage.txt'
         }
